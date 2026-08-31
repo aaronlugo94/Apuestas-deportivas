@@ -11,7 +11,11 @@ BASE_URL = f"https://t.me/s/{CHANNEL_USERNAME}"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+                  "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+    # El preview web de Telegram se cachea agresivamente en su CDN;
+    # estos headers ayudan a reducir (no garantizan eliminar) ese caché.
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
 }
 
 
@@ -22,7 +26,9 @@ def fetch_messages(url: str = BASE_URL) -> list[dict]:
     El preview web solo trae ~20 mensajes más recientes por request;
     para el propósito de este bot (polling frecuente) es suficiente.
     """
-    resp = requests.get(url, headers=HEADERS, timeout=15)
+    # Cache-busting adicional por querystring, por si el CDN ignora los headers
+    import time
+    resp = requests.get(url, headers=HEADERS, params={"_": int(time.time())}, timeout=15)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -33,8 +39,18 @@ def fetch_messages(url: str = BASE_URL) -> list[dict]:
             continue
         msg_id = msg_div.get("data-post", "")  # ej. "canal/123"
 
-        text_div = msg_div.select_one("div.tgme_widget_message_text")
-        text = text_div.get_text(separator="\n").strip() if text_div else ""
+        # Junta TODO el texto visible del mensaje, incluyendo el bloque de
+        # "reply" (cuando el cupón viene como respuesta a otro mensaje, como
+        # el "Video message" que se ve en el canal) -- antes solo tomábamos
+        # tgme_widget_message_text, que puede excluir el texto del cupón si
+        # está en un bloque separado.
+        text_parts = []
+        for sel in ("div.tgme_widget_message_reply", "div.tgme_widget_message_text"):
+            for el in msg_div.select(sel):
+                t = el.get_text(separator="\n").strip()
+                if t:
+                    text_parts.append(t)
+        text = "\n".join(text_parts)
 
         time_tag = msg_div.select_one("time")
         date = time_tag.get("datetime") if time_tag else None
@@ -49,3 +65,4 @@ if __name__ == "__main__":
     for m in fetch_messages():
         print("---", m["id"], m["date"])
         print(m["text"][:200])
+

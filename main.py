@@ -16,11 +16,16 @@ log = logging.getLogger("signal-bot")
 
 POLL_INTERVAL_SECONDS = int(os.environ.get("POLL_INTERVAL_SECONDS", "180"))  # 3 min default
 DEFAULT_STAKE_UNIDADES = float(os.environ.get("DEFAULT_STAKE_UNIDADES", "1"))
+DEBUG_MODE = os.environ.get("DEBUG_MODE", "false").lower() == "true"
 
 
 def process_once():
     messages = fetch_messages()
     log.info(f"Obtenidos {len(messages)} mensajes del canal.")
+
+    if DEBUG_MODE and messages:
+        log.info(f"[DEBUG] IDs más recientes: {[m['id'] for m in messages[:5]]}")
+        log.info(f"[DEBUG] Texto del más reciente:\n{messages[0]['text'][:500]}")
 
     for msg in messages:
         msg_id = msg["id"] or message_hash(msg["text"])
@@ -28,6 +33,9 @@ def process_once():
 
         if db.signal_exists(msg_id):
             continue
+
+        if DEBUG_MODE and "cuota" in text.lower() and not is_real_signal(text):
+            log.info(f"[DEBUG] Mensaje con 'cuota' pero NO paso el filtro (id={msg_id}):\n{text[:500]}")
 
         if is_real_signal(text):
             parsed = parse_signal(text, msg_id)
