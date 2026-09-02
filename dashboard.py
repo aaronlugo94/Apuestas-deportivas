@@ -11,6 +11,9 @@ Si lo despliegas en Railway aparte del worker, corre como servicio web
 """
 import os
 import sqlite3
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -21,6 +24,34 @@ st.set_page_config(page_title="Señales — Ganancias/Pérdidas", layout="wide")
 st.title("📊 Tracking de señales filtradas")
 
 INSIDER_DB_PATH = os.path.join(os.environ.get("DB_DIR", "."), "signals.db")
+TUCSON_TZ = ZoneInfo("America/Phoenix")  # Arizona no usa horario de verano, igual que Tucson
+
+
+def to_tucson(iso_str: str) -> str:
+    """Convierte un ISO string en UTC a hora de Tucson, formato corto."""
+    if not iso_str:
+        return ""
+    try:
+        dt = datetime.fromisoformat(iso_str)
+        return dt.astimezone(TUCSON_TZ).strftime("%d/%m %H:%M")
+    except (ValueError, TypeError):
+        return iso_str
+
+
+def format_date_columns(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    df = df.copy()
+    for col in cols:
+        if col in df.columns:
+            df[col] = df[col].apply(to_tucson)
+    return df
+
+
+def display_table(df: pd.DataFrame, date_cols: list[str]):
+    """Muestra la tabla con fechas en hora de Tucson y el índice empezando en 1."""
+    df = format_date_columns(df, date_cols)
+    df = df.reset_index(drop=True)
+    df.index = df.index + 1
+    st.dataframe(df, use_container_width=True)
 
 
 def get_insider_summary_and_signals():
@@ -54,6 +85,13 @@ def get_insider_summary_and_signals():
     return summary, signals
 
 
+def delete_insider_signal(signal_id: int):
+    conn = sqlite3.connect(INSIDER_DB_PATH)
+    conn.execute("DELETE FROM insider_signals WHERE id = ?", (signal_id,))
+    conn.commit()
+    conn.close()
+
+
 def render_apuestas_deportivas():
     db.init_db()
     summary = db.get_summary()
@@ -68,7 +106,8 @@ def render_apuestas_deportivas():
 
     st.caption(
         "Nota: 'unidades' = stake fijo configurable (DEFAULT_STAKE_UNIDADES), "
-        "no dinero real. Así el ROI es comparable sin importar cuánto apuestes tú."
+        "no dinero real. Así el ROI es comparable sin importar cuánto apuestes tú. "
+        "Fechas mostradas en hora de Tucson."
     )
 
     df = pd.DataFrame([s for s in signals if s["cuota"]])
@@ -92,36 +131,38 @@ def render_apuestas_deportivas():
 
         st.subheader("Detalle de señales")
         display_cols = [
-            "fecha_publicacion", "equipo_local", "equipo_visitante", "mercado",
+            "id", "fecha_publicacion", "equipo_local", "equipo_visitante", "mercado",
             "cuota", "stake_unidades", "estado", "profit_unidades", "fecha_resolucion",
         ]
-        st.dataframe(
-            df[display_cols].sort_values("fecha_publicacion", ascending=False),
-            use_container_width=True,
-        )
+        tabla = df[display_cols].sort_values("fecha_publicacion", ascending=False)
+        display_table(tabla.drop(columns=["id"]), ["fecha_publicacion", "fecha_resolucion"])
 
-        pendientes = [s for s in signals if s["cuota"] and s["estado"] == "pendiente"]
-        if pendientes:
-            st.subheader("⚙️ Resolver manualmente")
-            st.caption(
-                "Úsalo cuando el canal publique un resultado que el matching "
-                "automático no logró emparejar (ej. un cupón que el scraper "
-                "nunca alcanzó a capturar antes de que saliera el resumen)."
-            )
-            opciones = {
-                f"#{s['id']} — {s['equipo_local']} vs {s['equipo_visitante']} (cuota {s['cuota']})": s["id"]
-                for s in pendientes
-            }
-            seleccion = st.selectbox("Señal pendiente", list(opciones.keys()), key="manual_resolve_select")
-            col_a, col_b = st.columns(2)
-            if col_a.button("✅ Marcar ganada", use_container_width=True):
-                db.resolve_by_id(opciones[seleccion], "ganada")
-                st.success("Marcada como ganada.")
-                st.rerun()
-            if col_b.button("❌ Marcar perdida", use_container_width=True):
-                db.resolve_by_id(opciones[seleccion], "perdida")
-                st.success("Marcada como perdida.")
-                st.rerun()
+        st.subheader("⚙️ Resolver o eliminar manualmente")
+        opciones = {
+            f"#{s['id']} — {s['equipo_local']} vs {s['equipo_visitante']} (cuota {s['cuota']}, {s['estado']})": s["id"]
+            for s in signals if s["cuota"]
+        }
+        seleccion = st.selectbox("Señal", list(opciones.keys()), key="manual_action_select")
+
+        st.caption(
+            "Resolver: úsalo cuando el canal publique un resultado que el matching "
+            "automático no logró emparejar."
+        )
+        col_a, col_b = st.columns(2)
+        if col_a.button("✅ Marcar ganada", use_container_width=True):
+            db.resolve_by_id(opciones[seleccion], "ganada")
+            st.success("Marcada como ganada.")
+            st.rerun()
+        if col_b.button("❌ Marcar perdida", use_container_width=True):
+            db.resolve_by_id(opciones[seleccion], "perdida")
+            st.success("Marcada como perdida.")
+            st.rerun()
+
+        st.caption("Eliminar: para picks basura, duplicados, o mal parseados.")
+        if st.button("🗑️ Eliminar esta señal", use_container_width=True):
+            db.delete_signal(opciones[seleccion])
+            st.success("Señal eliminada.")
+            st.rerun()
     else:
         st.info("Aún no hay señales registradas. El worker las irá llenando conforme corra.")
 
@@ -140,7 +181,7 @@ def render_insider():
         "como capturas de pantalla (extraídas con OCR) o texto libre, y los "
         "resultados se resuelven por orden de llegada (FIFO), no por match "
         "exacto con cada pick. Trátalo como una aproximación, no como dato exacto — "
-        "revisa la columna 'confianza' de cada fila."
+        "revisa la columna 'confianza' de cada fila. Fechas en hora de Tucson."
     )
 
     df = pd.DataFrame([s for s in signals if s["cuota"]])
@@ -164,13 +205,19 @@ def render_insider():
 
         st.subheader("Detalle de picks")
         display_cols = [
-            "fecha_publicacion", "partidos", "cuota", "fuente", "confianza",
+            "id", "fecha_publicacion", "partidos", "cuota", "fuente", "confianza",
             "stake_unidades", "estado", "profit_unidades", "fecha_resolucion",
         ]
-        st.dataframe(
-            df[display_cols].sort_values("fecha_publicacion", ascending=False),
-            use_container_width=True,
-        )
+        tabla = df[display_cols].sort_values("fecha_publicacion", ascending=False)
+        display_table(tabla.drop(columns=["id"]), ["fecha_publicacion", "fecha_resolucion"])
+
+        st.subheader("🗑️ Eliminar un pick")
+        opciones = {f"#{s['id']} — {s['partidos']} (cuota {s['cuota']})": s["id"] for s in signals if s["cuota"]}
+        seleccion = st.selectbox("Pick", list(opciones.keys()), key="insider_delete_select")
+        if st.button("🗑️ Eliminar este pick", use_container_width=True):
+            delete_insider_signal(opciones[seleccion])
+            st.success("Pick eliminado.")
+            st.rerun()
     else:
         st.info("Aún no hay picks registrados de INSIDER.")
 
@@ -180,4 +227,3 @@ with tab1:
     render_apuestas_deportivas()
 with tab2:
     render_insider()
-

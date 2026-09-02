@@ -128,6 +128,16 @@ def resolve_pending_by_cuota(cuota: float, resultado: str, tolerance: float = 0.
     return True
 
 
+def delete_signal(signal_id: int) -> bool:
+    """Elimina una señal por completo (para picks basura/duplicados/mal parseados)."""
+    conn = get_conn()
+    cur = conn.execute("DELETE FROM signals WHERE id = ?", (signal_id,))
+    conn.commit()
+    deleted = cur.rowcount > 0
+    conn.close()
+    return deleted
+
+
 def get_all_signals():
     conn = get_conn()
     rows = conn.execute("SELECT * FROM signals ORDER BY fecha_publicacion DESC").fetchall()
