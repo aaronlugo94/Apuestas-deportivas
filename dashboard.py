@@ -138,11 +138,18 @@ def render_apuestas_deportivas():
         display_table(tabla.drop(columns=["id"]), ["fecha_publicacion", "fecha_resolucion"])
 
         st.subheader("⚙️ Resolver o eliminar manualmente")
-        opciones = {
-            f"#{s['id']} — {s['equipo_local']} vs {s['equipo_visitante']} (cuota {s['cuota']}, {s['estado']})": s["id"]
-            for s in signals if s["cuota"]
+        candidatos = [s for s in signals if s["cuota"]]
+        label_map = {
+            s["id"]: f"#{s['id']} — {s['equipo_local']} vs {s['equipo_visitante']} (cuota {s['cuota']}, {s['estado']})"
+            for s in candidatos
         }
-        seleccion = st.selectbox("Señal", list(opciones.keys()), key="manual_action_select")
+        ids_disponibles = [s["id"] for s in candidatos]
+        selected_id = st.selectbox(
+            "Señal",
+            ids_disponibles,
+            format_func=lambda i: label_map[i],
+            key="manual_action_select",
+        )
 
         st.caption(
             "Resolver: úsalo cuando el canal publique un resultado que el matching "
@@ -150,18 +157,18 @@ def render_apuestas_deportivas():
         )
         col_a, col_b = st.columns(2)
         if col_a.button("✅ Marcar ganada", use_container_width=True):
-            db.resolve_by_id(opciones[seleccion], "ganada")
-            st.success("Marcada como ganada.")
+            db.resolve_by_id(selected_id, "ganada")
+            st.success(f"Señal #{selected_id} marcada como ganada.")
             st.rerun()
         if col_b.button("❌ Marcar perdida", use_container_width=True):
-            db.resolve_by_id(opciones[seleccion], "perdida")
-            st.success("Marcada como perdida.")
+            db.resolve_by_id(selected_id, "perdida")
+            st.success(f"Señal #{selected_id} marcada como perdida.")
             st.rerun()
 
         st.caption("Eliminar: para picks basura, duplicados, o mal parseados.")
         if st.button("🗑️ Eliminar esta señal", use_container_width=True):
-            db.delete_signal(opciones[seleccion])
-            st.success("Señal eliminada.")
+            db.delete_signal(selected_id)
+            st.success(f"Señal #{selected_id} eliminada.")
             st.rerun()
     else:
         st.info("Aún no hay señales registradas. El worker las irá llenando conforme corra.")
@@ -212,11 +219,18 @@ def render_insider():
         display_table(tabla.drop(columns=["id"]), ["fecha_publicacion", "fecha_resolucion"])
 
         st.subheader("🗑️ Eliminar un pick")
-        opciones = {f"#{s['id']} — {s['partidos']} (cuota {s['cuota']})": s["id"] for s in signals if s["cuota"]}
-        seleccion = st.selectbox("Pick", list(opciones.keys()), key="insider_delete_select")
+        candidatos = [s for s in signals if s["cuota"]]
+        label_map = {s["id"]: f"#{s['id']} — {s['partidos']} (cuota {s['cuota']})" for s in candidatos}
+        ids_disponibles = [s["id"] for s in candidatos]
+        selected_id = st.selectbox(
+            "Pick",
+            ids_disponibles,
+            format_func=lambda i: label_map[i],
+            key="insider_delete_select",
+        )
         if st.button("🗑️ Eliminar este pick", use_container_width=True):
-            delete_insider_signal(opciones[seleccion])
-            st.success("Pick eliminado.")
+            delete_insider_signal(selected_id)
+            st.success(f"Pick #{selected_id} eliminado.")
             st.rerun()
     else:
         st.info("Aún no hay picks registrados de INSIDER.")
