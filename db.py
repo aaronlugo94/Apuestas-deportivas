@@ -64,6 +64,36 @@ def insert_signal(raw_message_id, fecha_evento, equipo_local, equipo_visitante,
     conn.close()
 
 
+def resolve_by_id(signal_id: int, resultado: str):
+    """
+    Resuelve manualmente una señal específica por su id (para cuando el
+    matching automático por cuota falla -- ej. un cupón que el scraper
+    nunca alcanzó a capturar antes de que el resumen diario se publicara).
+    """
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT id, cuota, stake_unidades FROM signals WHERE id = ?", (signal_id,)
+    ).fetchone()
+    if row is None:
+        conn.close()
+        return False
+
+    stake = row["stake_unidades"]
+    if resultado == "ganada":
+        profit = stake * (row["cuota"] - 1)
+    else:
+        profit = -stake
+
+    conn.execute(
+        """UPDATE signals SET estado = ?, profit_unidades = ?, fecha_resolucion = ?
+           WHERE id = ?""",
+        (resultado, profit, datetime.now(timezone.utc).isoformat(), signal_id),
+    )
+    conn.commit()
+    conn.close()
+    return True
+
+
 def resolve_pending_by_cuota(cuota: float, resultado: str, tolerance: float = 0.005):
     """
     Marca como ganada/perdida la señal pendiente cuya cuota coincida
