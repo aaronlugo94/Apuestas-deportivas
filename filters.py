@@ -37,8 +37,11 @@ TEAM_LINE_RE = re.compile(
 CUOTA_LINE_RE = re.compile(r"^\s*(\d{1,2}[.,]\d{1,3})\s*$", re.MULTILINE)
 # Línea de mercado, empieza con la flecha
 MERCADO_RE = re.compile(r"➡️\s*([^\n]+)")
+# Línea de país/liga, tipo "Futebol⚽Argentina. Liga Profesional"
 # Fecha del evento, tipo "28.08 21:30" o "31.08 20:00"
 FECHA_RE = re.compile(r"\b(\d{1,2}\.\d{1,2}\s+\d{1,2}:\d{2})\b")
+# Línea de país/liga, tipo "Futebol⚽Argentina. Liga Profesional"
+LIGA_PAIS_RE = re.compile(r"Futebol.{0,3}([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ .]{2,40})", re.UNICODE)
 
 
 def is_real_signal(text: str) -> bool:
@@ -87,8 +90,12 @@ def parse_signal(text: str, message_id: str) -> dict | None:
     fecha_match = FECHA_RE.search(text)
     fecha_evento = fecha_match.group(1) if fecha_match else None
 
+    liga_match = LIGA_PAIS_RE.search(text)
+    liga_pais = liga_match.group(1).strip().rstrip(".") if liga_match else None
+
     return {
         "raw_message_id": message_id,
+        "liga_pais": liga_pais,
         "fecha_evento": fecha_evento,
         "equipo_local": equipo_local,
         "equipo_visitante": equipo_visitante,

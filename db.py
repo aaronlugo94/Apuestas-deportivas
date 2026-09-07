@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS signals (
     fecha_evento TEXT,              -- fecha/hora del evento deportivo (ej. "28.08 21:30")
     equipo_local TEXT,
     equipo_visitante TEXT,
+    liga_pais TEXT,                 -- ej. "Argentina. Liga Profesional" (ayuda a ubicar el partido en la API)
     mercado TEXT,                   -- ej. "G1", "Hándicap 2 (1.75)"
     cuota REAL,                     -- ej. 1.843
     stake_unidades REAL DEFAULT 1,  -- stake fijo en "unidades" (no dinero real)
@@ -36,6 +37,10 @@ def get_conn():
 def init_db():
     conn = get_conn()
     conn.executescript(SCHEMA)
+    # Migración: si la base ya existía de antes de agregar liga_pais, la agregamos
+    existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(signals)")}
+    if "liga_pais" not in existing_cols:
+        conn.execute("ALTER TABLE signals ADD COLUMN liga_pais TEXT")
     conn.commit()
     conn.close()
 
@@ -50,15 +55,15 @@ def signal_exists(raw_message_id: str) -> bool:
 
 
 def insert_signal(raw_message_id, fecha_evento, equipo_local, equipo_visitante,
-                   mercado, cuota, stake_unidades=1.0):
+                   mercado, cuota, stake_unidades=1.0, liga_pais=None):
     conn = get_conn()
     conn.execute(
         """INSERT OR IGNORE INTO signals
            (raw_message_id, fecha_evento, equipo_local, equipo_visitante,
-            mercado, cuota, stake_unidades, fecha_publicacion)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            mercado, cuota, stake_unidades, liga_pais, fecha_publicacion)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (raw_message_id, fecha_evento, equipo_local, equipo_visitante,
-         mercado, cuota, stake_unidades, datetime.now(timezone.utc).isoformat()),
+         mercado, cuota, stake_unidades, liga_pais, datetime.now(timezone.utc).isoformat()),
     )
     conn.commit()
     conn.close()

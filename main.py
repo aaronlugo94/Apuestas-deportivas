@@ -10,6 +10,7 @@ from scraper import fetch_messages
 from filters import is_real_signal, is_daily_summary, parse_signal, parse_daily_results, message_hash
 from notifier import send_signal
 import db
+import results_checker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("signal-bot")
@@ -17,6 +18,9 @@ log = logging.getLogger("signal-bot")
 POLL_INTERVAL_SECONDS = int(os.environ.get("POLL_INTERVAL_SECONDS", "180"))  # 3 min default
 DEFAULT_STAKE_UNIDADES = float(os.environ.get("DEFAULT_STAKE_UNIDADES", "1"))
 DEBUG_MODE = os.environ.get("DEBUG_MODE", "false").lower() == "true"
+# Cada cuánto revisar resultados reales vía api-football (independiente del
+# polling del canal, para cuidar la cuota diaria de la API -- default 30 min)
+RESULTS_CHECK_INTERVAL_SECONDS = int(os.environ.get("RESULTS_CHECK_INTERVAL_SECONDS", "1800"))
 
 
 def process_once():
@@ -48,6 +52,7 @@ def process_once():
                     mercado=parsed["mercado"],
                     cuota=parsed["cuota"],
                     stake_unidades=DEFAULT_STAKE_UNIDADES,
+                    liga_pais=parsed.get("liga_pais"),
                 )
                 send_signal(parsed, parsed["cuota"])
                 log.info(f"Nueva señal guardada y enviada: {parsed}")
@@ -71,11 +76,20 @@ def process_once():
 def main():
     db.init_db()
     log.info("Bot iniciado. Polling cada %s segundos.", POLL_INTERVAL_SECONDS)
+    ultimo_check_resultados = 0.0
     while True:
         try:
             process_once()
         except Exception as e:
             log.exception(f"Error en el ciclo principal: {e}")
+
+        if time.time() - ultimo_check_resultados >= RESULTS_CHECK_INTERVAL_SECONDS:
+            try:
+                results_checker.check_pending_signals()
+            except Exception as e:
+                log.exception(f"Error verificando resultados vía API: {e}")
+            ultimo_check_resultados = time.time()
+
         time.sleep(POLL_INTERVAL_SECONDS)
 
 
