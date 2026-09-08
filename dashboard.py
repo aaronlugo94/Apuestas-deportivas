@@ -97,12 +97,13 @@ def render_apuestas_deportivas():
     summary = db.get_summary()
     signals = db.get_all_signals()
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     col1.metric("Señales totales", summary["total_senales"])
     col2.metric("Pendientes", summary["pendientes"])
-    col3.metric("Winrate", f'{summary["winrate_pct"]}%')
-    col4.metric("Profit (unidades)", summary["profit_unidades"])
-    col5.metric("ROI", f'{summary["roi_pct"]}%')
+    col3.metric("Anuladas", summary["anuladas"])
+    col4.metric("Winrate", f'{summary["winrate_pct"]}%')
+    col5.metric("Profit (unidades)", summary["profit_unidades"])
+    col6.metric("ROI", f'{summary["roi_pct"]}%')
 
     st.caption(
         "Nota: 'unidades' = stake fijo configurable (DEFAULT_STAKE_UNIDADES), "
@@ -153,9 +154,10 @@ def render_apuestas_deportivas():
 
         st.caption(
             "Resolver: úsalo cuando el canal publique un resultado que el matching "
-            "automático no logró emparejar."
+            "automático no logró emparejar. Anular: partido suspendido/cancelado o "
+            "apuesta reembolsada por la casa -- no cuenta para winrate ni arriesga capital."
         )
-        col_a, col_b = st.columns(2)
+        col_a, col_b, col_c = st.columns(3)
         if col_a.button("✅ Marcar ganada", use_container_width=True):
             db.resolve_by_id(selected_id, "ganada")
             st.success(f"Señal #{selected_id} marcada como ganada.")
@@ -163,6 +165,10 @@ def render_apuestas_deportivas():
         if col_b.button("❌ Marcar perdida", use_container_width=True):
             db.resolve_by_id(selected_id, "perdida")
             st.success(f"Señal #{selected_id} marcada como perdida.")
+            st.rerun()
+        if col_c.button("↩️ Anular (reembolso)", use_container_width=True):
+            db.resolve_by_id(selected_id, "anulada")
+            st.success(f"Señal #{selected_id} marcada como anulada.")
             st.rerun()
 
         st.caption("Eliminar: para picks basura, duplicados, o mal parseados.")

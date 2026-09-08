@@ -74,6 +74,8 @@ def resolve_by_id(signal_id: int, resultado: str):
     Resuelve manualmente una señal específica por su id (para cuando el
     matching automático por cuota falla -- ej. un cupón que el scraper
     nunca alcanzó a capturar antes de que el resumen diario se publicara).
+    resultado: 'ganada' | 'perdida' | 'anulada' (partido suspendido/apuesta
+    reembolsada -- no cuenta para winrate ni arriesga capital).
     """
     conn = get_conn()
     row = conn.execute(
@@ -86,6 +88,8 @@ def resolve_by_id(signal_id: int, resultado: str):
     stake = row["stake_unidades"]
     if resultado == "ganada":
         profit = stake * (row["cuota"] - 1)
+    elif resultado == "anulada":
+        profit = 0.0
     else:
         profit = -stake
 
@@ -151,21 +155,29 @@ def get_all_signals():
 
 
 def get_summary():
-    signals = get_all_signals()
-    resueltas = [s for s in signals if s["estado"] in ("ganada", "perdida")]
-    ganadas = [s for s in resueltas if s["estado"] == "ganada"]
-    perdidas = [s for s in resueltas if s["estado"] == "perdida"]
-    total_apostado = sum(s["stake_unidades"] for s in resueltas)
-    profit_total = sum(s["profit_unidades"] or 0 for s in resueltas)
+    todos = get_all_signals()
+    # Excluye placeholders internos (promos/resúmenes guardados solo para no
+    # reprocesarlos) -- esos se guardan con cuota=0/None y nunca son señales reales.
+    signals = [s for s in todos if s["cuota"]]
+
+    ganadas = [s for s in signals if s["estado"] == "ganada"]
+    perdidas = [s for s in signals if s["estado"] == "perdida"]
+    anuladas = [s for s in signals if s["estado"] == "anulada"]
+    pendientes = [s for s in signals if s["estado"] == "pendiente"]
+    resueltas = ganadas + perdidas  # anuladas NO cuentan para winrate
+
+    total_apostado = sum(s["stake_unidades"] for s in resueltas)  # anuladas no arriesgaron capital
+    profit_total = sum(s["profit_unidades"] or 0 for s in signals)  # anuladas suman 0, no afectan
     roi = (profit_total / total_apostado * 100) if total_apostado else 0.0
     winrate = (len(ganadas) / len(resueltas) * 100) if resueltas else 0.0
 
     return {
         "total_senales": len(signals),
-        "pendientes": len(signals) - len(resueltas),
+        "pendientes": len(pendientes),
         "resueltas": len(resueltas),
         "ganadas": len(ganadas),
         "perdidas": len(perdidas),
+        "anuladas": len(anuladas),
         "winrate_pct": round(winrate, 2),
         "profit_unidades": round(profit_total, 2),
         "total_apostado_unidades": round(total_apostado, 2),
